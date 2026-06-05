@@ -2,6 +2,9 @@
 
 JigsawGen is a small local web app for generating and playing draggable jigsaw puzzles from your own images.
 
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 Repository: <https://github.com/NonInertialObserver/jigsawgen>
 
 ## Features
