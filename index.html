@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flask 拼图游戏</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --primary: #4866ff;
+      --primary-dark: #3149c9;
+      --text: #172033;
+      --muted: #67728a;
+      --line: #dbe2ef;
+      --success: #18a058;
+      --danger: #d93025;
+      --danger-dark: #a61b12;
+      --shadow: 0 16px 40px rgba(25, 38, 80, .12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at top left, #e9edff, transparent 32rem), var(--bg);
+    }
+    header {
+      padding: 28px 32px 12px;
+      text-align: center;
+    }
+    h1 { margin: 0 0 8px; font-size: clamp(28px, 4vw, 44px); }
+    .subtitle { margin: 0; color: var(--muted); }
+    .app-shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 20px auto 40px;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    .card {
+      background: rgba(255,255,255,.9);
+      border: 1px solid rgba(219,226,239,.8);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+    }
+    .controls { padding: 22px; position: sticky; top: 16px; }
+    .controls h2 { margin: 0 0 16px; font-size: 20px; }
+    label { display: block; margin: 14px 0 7px; font-weight: 700; }
+    input[type="file"], input[type="number"], input[type="range"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: white;
+      color: var(--text);
+    }
+    .grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    button {
+      width: 100%;
+      margin-top: 18px;
+      border: 0;
+      border-radius: 14px;
+      padding: 13px 16px;
+      color: white;
+      background: linear-gradient(135deg, var(--primary), #7b61ff);
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 10px 24px rgba(72,102,255,.25);
+    }
+    button:disabled { opacity: .6; cursor: wait; }
+    .shutdown-button {
+      background: linear-gradient(135deg, var(--danger), #ff6b5f);
+      box-shadow: 0 10px 24px rgba(217,48,37,.22);
+    }
+    .shutdown-button:hover { background: linear-gradient(135deg, var(--danger-dark), var(--danger)); }
+    .hint, .status { color: var(--muted); line-height: 1.6; font-size: 14px; }
+    .status { min-height: 24px; margin-top: 12px; }
+    .board-card { padding: 18px; overflow: hidden; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .pill {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: white;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    #playArea {
+      position: relative;
+      min-height: 640px;
+      border: 1px dashed #b8c2d8;
+      border-radius: 18px;
+      background:
+        linear-gradient(90deg, rgba(72,102,255,.06) 1px, transparent 1px),
+        linear-gradient(rgba(72,102,255,.06) 1px, transparent 1px),
+        #fbfcff;
+      background-size: 32px 32px;
+      overflow: hidden;
+      touch-action: none;
+    }
+    #board {
+      position: absolute;
+      left: 24px;
+      top: 24px;
+      border: 2px solid #9da9c2;
+      border-radius: 10px;
+      background: repeating-linear-gradient(45deg, #fff, #fff 12px, #f3f6fc 12px, #f3f6fc 24px);
+      box-shadow: inset 0 0 0 1px white;
+    }
+    .cell {
+      position: absolute;
+      border: 1px solid rgba(72,102,255,.18);
+    }
+    .piece {
+      position: absolute;
+      user-select: none;
+      -webkit-user-drag: none;
+      cursor: grab;
+      filter: drop-shadow(0 8px 10px rgba(20, 30, 60, .25));
+      transition: filter .12s, transform .12s;
+    }
+    .piece.dragging { cursor: grabbing; filter: drop-shadow(0 16px 18px rgba(20, 30, 60, .35)); transform: scale(1.03); }
+    .piece.locked { cursor: default; filter: drop-shadow(0 3px 4px rgba(20, 30, 60, .18)); }
+    .success { color: var(--success); font-weight: 800; }
+    @media (max-width: 900px) {
+      .app-shell { grid-template-columns: 1fr; }
+      .controls { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🧩 Flask 拼图游戏</h1>
+    <p class="subtitle">上传图片，使用拼图切片算法生成可拖拽拼图。</p>
+  </header>
+
+  <main class="app-shell">
+    <section class="card controls">
+      <h2>生成拼图</h2>
+      <form id="puzzleForm">
+        <label for="image">选择图片</label>
+        <input id="image" name="image" type="file" accept="image/*" required>
+        <div class="grid-two">
+          <div>
+            <label for="rows">行数</label>
+            <input id="rows" name="rows" type="number" min="2" max="10" value="4" required>
+          </div>
+          <div>
+            <label for="cols">列数</label>
+            <input id="cols" name="cols" type="number" min="2" max="10" value="4" required>
+          </div>
+        </div>
+        <label for="tabSize">拼图凸起大小：<span id="tabLabel">0.35</span></label>
+        <input id="tabSize" name="tab_size" type="range" min="0.1" max="0.45" step="0.01" value="0.35">
+        <button id="generateBtn" type="submit">生成并开始</button>
+      </form>
+      <p class="hint">玩法：拖动右侧散落的切片到左上方棋盘。接近正确位置时会自动吸附。</p>
+      <div id="status" class="status">等待上传图片。</div>
+      <button id="shutdownBtn" class="shutdown-button" type="button">关闭软件</button>
+    </section>
+
+    <section class="card board-card">
+      <div class="toolbar">
+        <div class="pill">状态：<span id="gameState">未开始</span></div>
+        <div class="pill">完成：<span id="progressText">0 / 0</span></div>
+        <div class="pill">吸附距离：24px</div>
+      </div>
+      <div id="playArea">
+        <div id="board"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById('puzzleForm');
+    const statusEl = document.getElementById('status');
+    const playArea = document.getElementById('playArea');
+    const board = document.getElementById('board');
+    const gameState = document.getElementById('gameState');
+    const progressText = document.getElementById('progressText');
+    const generateBtn = document.getElementById('generateBtn');
+    const shutdownBtn = document.getElementById('shutdownBtn');
+    const tabSize = document.getElementById('tabSize');
+    const tabLabel = document.getElementById('tabLabel');
+    const snapDistance = 24;
+    let puzzle = null;
+    let lockedCount = 0;
+    let topZ = 10;
+
+    tabSize.addEventListener('input', () => tabLabel.textContent = tabSize.value);
+
+    shutdownBtn.addEventListener('click', async () => {
+      if (!confirm('确定要关闭拼图游戏吗？')) return;
+      shutdownBtn.disabled = true;
+      statusEl.textContent = '正在关闭软件...';
+      try {
+        const response = await fetch('/api/shutdown', { method: 'POST' });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || '关闭失败');
+        statusEl.textContent = result.message || '软件已关闭，你可以关闭此页面。';
+        gameState.textContent = '已关闭';
+        generateBtn.disabled = true;
+        setTimeout(() => window.close(), 600);
+      } catch (error) {
+        shutdownBtn.disabled = false;
+        statusEl.textContent = `${error.message}，请回到终端按 Ctrl+C。`;
+      }
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      generateBtn.disabled = true;
+      statusEl.textContent = '正在上传并生成切片...';
+      gameState.textContent = '生成中';
+      try {
+        const response = await fetch('/api/puzzles', { method: 'POST', body: data });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || '生成失败');
+        setupPuzzle(result);
+        statusEl.textContent = '生成完成，开始拼图吧！';
+        gameState.textContent = '进行中';
+      } catch (error) {
+        statusEl.textContent = error.message;
+        gameState.textContent = '出错';
+      } finally {
+        generateBtn.disabled = false;
+      }
+    });
+
+    function setupPuzzle(data) {
+      puzzle = data;
+      lockedCount = 0;
+      topZ = 10;
+      board.innerHTML = '';
+      document.querySelectorAll('.piece').forEach(el => el.remove());
+      progressText.textContent = `0 / ${data.pieces.length}`;
+
+      const scale = Math.min(1, (playArea.clientWidth * 0.48) / data.image_width, 520 / data.image_height);
+      puzzle.scale = Math.max(0.35, scale);
+      board.style.width = `${data.image_width * puzzle.scale}px`;
+      board.style.height = `${data.image_height * puzzle.scale}px`;
+
+      for (const piece of data.pieces) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.style.left = `${piece.x * puzzle.scale}px`;
+        cell.style.top = `${piece.y * puzzle.scale}px`;
+        cell.style.width = `${piece.width * puzzle.scale}px`;
+        cell.style.height = `${piece.height * puzzle.scale}px`;
+        board.appendChild(cell);
+      }
+
+      const shuffled = [...data.pieces].sort(() => Math.random() - 0.5);
+      shuffled.forEach((piece, index) => createPiece(piece, index));
+    }
+
+    function createPiece(piece, index) {
+      const img = document.createElement('img');
+      img.className = 'piece';
+      img.src = piece.url;
+      img.alt = `piece ${piece.row}-${piece.col}`;
+      img.draggable = false;
+      img.dataset.locked = 'false';
+      img.style.width = `${piece.image_width * puzzle.scale}px`;
+      img.style.height = `${piece.image_height * puzzle.scale}px`;
+      const areaW = playArea.clientWidth;
+      const boardW = puzzle.image_width * puzzle.scale;
+      const xMin = Math.min(areaW - 130, board.offsetLeft + boardW + 36);
+      const xRange = Math.max(80, areaW - xMin - piece.image_width * puzzle.scale - 24);
+      img.style.left = `${xMin + Math.random() * xRange}px`;
+      img.style.top = `${40 + (index % 8) * 62 + Math.random() * 24}px`;
+      img.style.zIndex = `${topZ++}`;
+      img._targetLeft = board.offsetLeft + (piece.x - piece.offset_x) * puzzle.scale;
+      img._targetTop = board.offsetTop + (piece.y - piece.offset_y) * puzzle.scale;
+      playArea.appendChild(img);
+      enableDrag(img);
+    }
+
+    function enableDrag(el) {
+      let startX = 0, startY = 0, originX = 0, originY = 0;
+      el.addEventListener('pointerdown', (event) => {
+        if (el.dataset.locked === 'true') return;
+        event.preventDefault();
+        el.setPointerCapture(event.pointerId);
+        startX = event.clientX;
+        startY = event.clientY;
+        originX = parseFloat(el.style.left);
+        originY = parseFloat(el.style.top);
+        el.classList.add('dragging');
+        el.style.zIndex = `${topZ++}`;
+      });
+
+      el.addEventListener('pointermove', (event) => {
+        if (!el.classList.contains('dragging')) return;
+        const nextX = originX + event.clientX - startX;
+        const nextY = originY + event.clientY - startY;
+        el.style.left = `${nextX}px`;
+        el.style.top = `${nextY}px`;
+      });
+
+      el.addEventListener('pointerup', () => finishDrag(el));
+      el.addEventListener('pointercancel', () => finishDrag(el));
+    }
+
+    function finishDrag(el) {
+      if (!el.classList.contains('dragging')) return;
+      el.classList.remove('dragging');
+      const currentX = parseFloat(el.style.left);
+      const currentY = parseFloat(el.style.top);
+      const distance = Math.hypot(currentX - el._targetLeft, currentY - el._targetTop);
+      if (distance <= snapDistance) {
+        el.style.left = `${el._targetLeft}px`;
+        el.style.top = `${el._targetTop}px`;
+        el.dataset.locked = 'true';
+        el.classList.add('locked');
+        lockedCount += 1;
+        progressText.textContent = `${lockedCount} / ${puzzle.pieces.length}`;
+        if (lockedCount === puzzle.pieces.length) {
+          gameState.innerHTML = '<span class="success">完成！</span>';
+          statusEl.innerHTML = '<span class="success">恭喜，你完成了整幅拼图！</span>';
+        }
+      }
+    }
+  </script>
+</body>
+</html>
